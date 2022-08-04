@@ -3,8 +3,8 @@ use fuser::{
     ReplyOpen, Request,
 };
 use libc::{
-    c_int, EINVAL, EIO, ENOENT, EPERM, O_ACCMODE, O_APPEND, O_CREAT, O_EXCL, O_RDONLY, O_RDWR,
-    O_TRUNC, O_WRONLY,
+    c_int, exit, fork, setsid, EINVAL, EIO, ENOENT, EPERM, O_ACCMODE, O_APPEND, O_CREAT, O_EXCL,
+    O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY,
 };
 use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
@@ -591,49 +591,80 @@ impl Filesystem for CacheFs {
     }
 }
 
+pub fn daemon() {
+    unsafe {
+        match fork() {
+            // child
+            0 => {
+                if setsid() == -1 {
+                    error!("error executing setsid()");
+                    exit(1);
+                }
+            }
+            -1 => {
+                error!("error executing fork()");
+                exit(1);
+            }
+            // parent
+            _ => exit(0),
+        }
+    }
+}
+
 fn main() {
     env_logger::init();
     let mut args = env::args_os().skip(1);
-    if args.next() != Some(OsStr::from_bytes(b"-o").to_os_string()) {
-        panic!("-o must be second argument");
-    }
     let mut cmd_opts = "ro".to_string();
-
     let mut cache_dir = "".to_string();
     let mut default_permissions = true;
-    let opts = args.next().expect("found -o but missing opts");
-    let opts = opts.to_str().expect("non-utf8 opts").split(',');
-    for opt in opts {
-        if opt.starts_with("cache_dir=") {
-            let mut split_opt = opt.splitn(2, '=');
-            if let Some(dir) = split_opt.nth(1) {
-                cache_dir.clear();
-                cache_dir.push_str(dir);
+    let mut fork_daemon = true;
+
+    let mut count = 0;
+    let mut pos_args = [None, None];
+
+    while let Some(arg) = args.next() {
+        if arg == "-o" {
+            let opts = args.next().expect("found -o but missing opts");
+            let opts = opts.to_str().expect("non-utf8 opts").split(',');
+            for opt in opts {
+                if opt.starts_with("cache_dir=") {
+                    let mut split_opt = opt.splitn(2, '=');
+                    if let Some(dir) = split_opt.nth(1) {
+                        cache_dir.clear();
+                        cache_dir.push_str(dir);
+                    }
+                    continue;
+                }
+                match opt {
+                    "ro" => (),
+                    "no_default_permissions" => default_permissions = false,
+                    "no_daemon" | "no_fork" | "nodaemon" | "nofork" => fork_daemon = false,
+                    "rw" => panic!("rw is not supported"),
+                    opt => {
+                        cmd_opts.push(',');
+                        cmd_opts.push_str(opt);
+                    }
+                }
             }
-            continue;
-        }
-        match opt {
-            "ro" => (),
-            "no_default_permissions" => default_permissions = false,
-            "rw" => panic!("rw is not supported"),
-            opt => {
-                cmd_opts.push(',');
-                cmd_opts.push_str(opt);
+            if cache_dir.is_empty() {
+                panic!("must supply cache_dir=/path/to/cache to -o")
             }
+            if !cmd_opts.contains(",fsname=") {
+                cmd_opts.push_str(",fsname=cachefs");
+            }
+            if default_permissions && !cmd_opts.contains(",default_permissions,") {
+                cmd_opts.push_str(",default_permissions");
+            }
+        } else if count < pos_args.len() {
+            pos_args[count] = Some(arg);
+            count += 1
+        } else {
+            panic!("too many arguments");
         }
-    }
-    if cache_dir.is_empty() {
-        panic!("must supply cache_dir=/path/to/cache to -o")
-    }
-    if !cmd_opts.contains(",fsname=") {
-        cmd_opts.push_str(",fsname=cachefs");
-    }
-    if default_permissions && !cmd_opts.contains(",default_permissions,") {
-        cmd_opts.push_str(",default_permissions");
     }
 
-    let remote_dir = PathBuf::from(args.next().expect("missing dir"));
-    let mountpoint = args.next().expect("missing mountpoint");
+    let remote_dir = PathBuf::from(pos_args[0].as_ref().expect("missing dir"));
+    let mountpoint = pos_args[1].as_ref().expect("missing mountpoint");
     let cache_dir = PathBuf::from(cache_dir);
 
     debug!(
@@ -649,6 +680,10 @@ fn main() {
 
     let cmd_opts = OsString::from(cmd_opts);
     let options = [OsStr::new("-o"), cmd_opts.as_os_str()];
+
+    if fork_daemon {
+        daemon();
+    }
     #[allow(deprecated)]
     fuser::mount(cache, mountpoint, &options).expect("mount failed");
 }
