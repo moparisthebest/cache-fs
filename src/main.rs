@@ -107,7 +107,7 @@ impl Debug for FileTree {
 
 impl FileTree {
     fn load_or_build(root_path: &Path, cache_path: &Path) -> SerdeResult<Self> {
-        let path = cache_path.join("cache-fs.tree");
+        let path = cache_path.join("cache-fs.tree.zst");
         match FileTree::load(&path) {
             Ok(tree) => return Ok(tree),
             Err(e) => warn!("error loading {:?}: {:?}", path, e),
@@ -120,6 +120,7 @@ impl FileTree {
     fn load(path: &Path) -> SerdeResult<Self> {
         let file = File::open(path)?;
         let file = BufReader::new(file);
+        let file = zstd::stream::Decoder::new(file)?;
 
         Ok(bincode::deserialize_from(file)?)
     }
@@ -127,6 +128,7 @@ impl FileTree {
     fn save(&self, path: &Path) -> SerdeResult<()> {
         let file = File::create(path)?;
         let file = BufWriter::new(file);
+        let file = zstd::stream::Encoder::new(file, 9)?.auto_finish();
 
         Ok(bincode::serialize_into(file, self)?)
     }
