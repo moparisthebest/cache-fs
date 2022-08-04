@@ -1,0 +1,10 @@
+/target/
+/target
+**/*.rs.bk
+.idea
+**/*.kate-swp
+**/out/
+**/core.*
+todo.txt
+conflict/
+orig/
