@@ -1,4 +1,4 @@
-use fuse::{
+use fuser::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
     ReplyOpen, Request,
 };
@@ -59,6 +59,7 @@ struct FileAttrDef {
     pub gid: u32,
     pub rdev: u32,
     pub flags: u32,
+    pub blksize: u32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -331,6 +332,7 @@ fn meta2attr(m: &std::fs::Metadata, ino: u64) -> Result<FileAttr> {
         gid: m.gid(),
         rdev: m.rdev() as u32,
         flags: 0,
+        blksize: m.blksize() as u32,
     })
 }
 
@@ -362,7 +364,7 @@ impl Filesystem for CacheFs {
         }
     }
 
-    fn open(&mut self, _req: &Request, ino: u64, flags: u32, reply: ReplyOpen) {
+    fn open(&mut self, _req: &Request, ino: u64, flags: i32, reply: ReplyOpen) {
         debug!("open: ino: {ino}, flags: {flags}");
 
         if let Some(file_handle) = self.opened_files.get_mut(&ino) {
@@ -441,11 +443,13 @@ impl Filesystem for CacheFs {
 
     fn read(
         &mut self,
-        _req: &Request,
+        _req: &Request<'_>,
         ino: u64,
         fh: u64,
         offset: i64,
         size: u32,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
         debug!("read: ino: {ino}, fh: {fh}, offset: {offset}, size: {size}");
@@ -482,11 +486,11 @@ impl Filesystem for CacheFs {
 
     fn release(
         &mut self,
-        _req: &Request,
+        _req: &Request<'_>,
         ino: u64,
         fh: u64,
-        _flags: u32,
-        _lock_owner: u64,
+        _flags: i32,
+        _lock_owner: Option<u64>,
         _flush: bool,
         reply: ReplyEmpty,
     ) {
@@ -507,7 +511,7 @@ impl Filesystem for CacheFs {
         reply.ok();
     }
 
-    fn opendir(&mut self, _req: &Request, ino: u64, flags: u32, reply: ReplyOpen) {
+    fn opendir(&mut self, _req: &Request, ino: u64, flags: i32, reply: ReplyOpen) {
         debug!("opendir: ino: {ino}, flags: {flags}");
         match self.tree.getattr(ino) {
             None => reply.error(ENOENT),
@@ -568,7 +572,7 @@ impl Filesystem for CacheFs {
         reply.ok();
     }
 
-    fn releasedir(&mut self, _req: &Request, ino: u64, fh: u64, flags: u32, reply: ReplyEmpty) {
+    fn releasedir(&mut self, _req: &Request, ino: u64, fh: u64, flags: i32, reply: ReplyEmpty) {
         debug!("releasedir: ino: {ino}, fh: {fh}, flags: {flags}");
         // or could just always return ok() ?
         match self.tree.file(ino) {
@@ -645,5 +649,6 @@ fn main() {
 
     let cmd_opts = OsString::from(cmd_opts);
     let options = [OsStr::new("-o"), cmd_opts.as_os_str()];
-    fuse::mount(cache, mountpoint, &options).expect("mount failed");
+    #[allow(deprecated)]
+    fuser::mount(cache, mountpoint, &options).expect("mount failed");
 }
