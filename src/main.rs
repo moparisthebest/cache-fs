@@ -27,6 +27,8 @@ use std::{
 type Result<T> = std::result::Result<T, Error>;
 type SerdeResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+// must change this if any of the structs change
+const INDEX_NAME: &str = "cache-fs.tree.zst";
 const TTL: Duration = Duration::from_secs(120);
 
 #[derive(Serialize, Deserialize)]
@@ -107,7 +109,11 @@ impl Debug for FileTree {
 
 impl FileTree {
     fn load_or_build(root_path: &Path, cache_path: &Path) -> SerdeResult<Self> {
-        let path = cache_path.join("cache-fs.tree.zst");
+        let root_index = root_path.join(INDEX_NAME);
+        let path = cache_path.join(INDEX_NAME);
+        if root_index.exists() {
+            std::fs::copy(&root_index, &path)?;
+        }
         match FileTree::load(&path) {
             Ok(tree) => return Ok(tree),
             Err(e) => warn!("error loading {:?}: {:?}", path, e),
@@ -181,6 +187,9 @@ impl FileTree {
             let dir_path = dir.path.clone();
             for de in x.flatten() {
                 if let Ok(attr) = de.metadata().and_then(|m| meta2attr(&m, *ino_counter)) {
+                    if de.file_name() == INDEX_NAME {
+                        continue; // don't show
+                    }
                     let path = dir_path.join(de.file_name());
                     let type_extra = match attr.kind {
                         FileType::RegularFile => TypeExtra::RegularFile,
@@ -625,7 +634,14 @@ fn main() {
     let mut pos_args = [None, None];
 
     while let Some(arg) = args.next() {
-        if arg == "-o" {
+        if arg == "-c" {
+            let root_path = PathBuf::from(args.next().expect("found -o but missing opts"));
+            let tree = FileTree::build(&root_path);
+            let path = root_path.join(INDEX_NAME.to_owned() + ".tmp");
+            tree.save(&path).expect("failed to save index");
+            std::fs::rename(path, root_path.join(INDEX_NAME)).expect("failed to rename index");
+            return;
+        } else if arg == "-o" {
             let opts = args.next().expect("found -o but missing opts");
             let opts = opts.to_str().expect("non-utf8 opts").split(',');
             for opt in opts {
@@ -638,10 +654,9 @@ fn main() {
                     continue;
                 }
                 match opt {
-                    "ro" => (),
+                    "ro" | "rw" => (),
                     "no_default_permissions" => default_permissions = false,
                     "no_daemon" | "no_fork" | "nodaemon" | "nofork" => fork_daemon = false,
-                    "rw" => panic!("rw is not supported"),
                     opt => {
                         cmd_opts.push(',');
                         cmd_opts.push_str(opt);
