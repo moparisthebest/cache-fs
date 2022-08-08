@@ -109,14 +109,18 @@ impl Debug for FileTree {
 
 impl FileTree {
     fn load_or_build(root_path: &Path, cache_path: &Path) -> SerdeResult<Self> {
-        let root_index = root_path.join(INDEX_NAME);
         let path = cache_path.join(INDEX_NAME);
-        if root_index.exists() {
-            std::fs::copy(&root_index, &path)?;
-        }
         match FileTree::load(&path) {
             Ok(tree) => return Ok(tree),
             Err(e) => warn!("error loading {:?}: {:?}", path, e),
+        }
+        let root_index = root_path.join(INDEX_NAME);
+        if root_index.exists() {
+            std::fs::copy(&root_index, &path)?;
+            match FileTree::load(&path) {
+                Ok(tree) => return Ok(tree),
+                Err(e) => warn!("error loading {:?}: {:?}", path, e),
+            }
         }
         let tree = FileTree::build(root_path);
         tree.save(&path)?;
