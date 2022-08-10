@@ -17,5 +17,10 @@ Usage
 
 This assumes you install the `cache-fs` binary as `mount.cachefs`, then you can use it in /etc/fstab etc
 ```
-mount -t cachefs -o cache_dir=/local/cache/dir /remote/dir/to/cache /where/you/want/it/mounted
+mount -t cachefs -o remote_dir=/remote/dir/to/cache /local/cache/dir /where/you/want/it/mounted
+```
+
+Or put it in /etc/fstab like:
+```
+/local/cache/dir /where/you/want/it/mounted cachefs defaults,ro,allow_other,remote_dir=/remote/dir/to/cache,nofail,_netdev 0     0
 ```

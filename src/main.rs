@@ -630,7 +630,7 @@ fn main() {
     env_logger::init();
     let mut args = env::args_os().skip(1);
     let mut cmd_opts = "ro".to_string();
-    let mut cache_dir = "".to_string();
+    let mut remote_dir = "".to_string();
     let mut default_permissions = true;
     let mut fork_daemon = true;
 
@@ -649,11 +649,11 @@ fn main() {
             let opts = args.next().expect("found -o but missing opts");
             let opts = opts.to_str().expect("non-utf8 opts").split(',');
             for opt in opts {
-                if opt.starts_with("cache_dir=") {
+                if opt.starts_with("remote_dir=") {
                     let mut split_opt = opt.splitn(2, '=');
                     if let Some(dir) = split_opt.nth(1) {
-                        cache_dir.clear();
-                        cache_dir.push_str(dir);
+                        remote_dir.clear();
+                        remote_dir.push_str(dir);
                     }
                     continue;
                 }
@@ -667,8 +667,8 @@ fn main() {
                     }
                 }
             }
-            if cache_dir.is_empty() {
-                panic!("must supply cache_dir=/path/to/cache to -o")
+            if remote_dir.is_empty() {
+                panic!("must supply remote_dir=/path/to/remote to -o")
             }
             if !cmd_opts.contains(",fsname=") {
                 cmd_opts.push_str(",fsname=cachefs");
@@ -684,9 +684,9 @@ fn main() {
         }
     }
 
-    let remote_dir = PathBuf::from(pos_args[0].as_ref().expect("missing dir"));
+    let cache_dir = PathBuf::from(pos_args[0].as_ref().expect("missing cache_dir"));
     let mountpoint = pos_args[1].as_ref().expect("missing mountpoint");
-    let cache_dir = PathBuf::from(cache_dir);
+    let remote_dir = PathBuf::from(remote_dir);
 
     debug!(
         "mounting {:?} on {:?} with cache_dir: {:?}, opts: {cmd_opts}",
